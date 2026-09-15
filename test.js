@@ -137,4 +137,81 @@ describe('debug', () => {
 			assert.deepStrictEqual(messages, ['test2', 'test3']);
 		});
 	});
+	describe('formatting', () => {
+		function capture(namespace) {
+			const log = debug(namespace);
+			log.enabled = true;
+			log.useColors = false;
+			const messages = [];
+			log.log = (...args) => messages.push(args);
+			return {log, messages};
+		}
+
+		it('replaces %% with a literal percent sign', () => {
+			const {log, messages} = capture('test:percent');
+			log('100%% done');
+			assert.deepStrictEqual(messages.length, 1);
+			assert.ok(messages[0][0].includes('100% done'));
+		});
+
+		it('formats an Error using its stack', () => {
+			const {log, messages} = capture('test:error');
+			const error = new Error('boom');
+			log(error);
+			assert.ok(messages[0][0].includes(error.stack));
+		});
+
+		it('inspects a non-string first argument with %O', () => {
+			const {log, messages} = capture('test:object');
+			const value = {answer: 42};
+			log(value);
+			// Node inlines the object through its %O formatter; browsers hand it
+			// to the console as a separate argument.
+			assert.deepStrictEqual(typeof messages[0][0], 'string');
+			assert.ok(messages[0][0].includes('answer: 42') || messages[0].includes(value));
+		});
+
+		it('formats an Error without a stack using its message', () => {
+			const {log, messages} = capture('test:error');
+			const error = new Error('no stack here');
+			error.stack = undefined;
+			log(error);
+			assert.ok(messages[0][0].includes('no stack here'));
+			assert.ok(!messages[0][0].includes('undefined'));
+		});
+	});
+
+	describe('namespace matching', () => {
+		afterEach(() => {
+			debug.enable('');
+		});
+
+		it('matches a trailing wildcard against an empty remainder', () => {
+			debug.enable('abc*');
+			assert.deepStrictEqual(debug('abc').enabled, true);
+			assert.deepStrictEqual(debug('abcd').enabled, true);
+			assert.deepStrictEqual(debug('ab').enabled, false);
+		});
+
+		it('backtracks over a wildcard in the middle of a namespace', () => {
+			debug.enable('a*c');
+			assert.deepStrictEqual(debug('ac').enabled, true);
+			assert.deepStrictEqual(debug('abc').enabled, true);
+			assert.deepStrictEqual(debug('abbbc').enabled, true);
+			assert.deepStrictEqual(debug('abd').enabled, false);
+			assert.deepStrictEqual(debug('abcd').enabled, false);
+		});
+
+		it('honors skips over enabled names', () => {
+			debug.enable('test:*,-test:secret');
+			assert.deepStrictEqual(debug('test:open').enabled, true);
+			assert.deepStrictEqual(debug('test:secret').enabled, false);
+		});
+
+		it('treats whitespace as a separator', () => {
+			debug.enable('one two  -three');
+			assert.deepStrictEqual(debug.names, ['one', 'two']);
+			assert.deepStrictEqual(debug.skips, ['three']);
+		});
+	});
 });
